@@ -8,9 +8,9 @@ class DefineAgent:
     def __init__(self, args, agent_num):
         # 定义无人机的基本属性
         self.speed = random.choice(args.speed)  # 无人机单次交互过程中的移动速度
+        self.det_range = random.choice(args.det_range_list)  # 无人机单次交互过程中的移动速度
         self.prob_correct = args.prob_correct  # 精确率
         self.prob_false_alarm = args.prob_false_alarm  # 漏警概率
-        self.det_range = args.det_range  #
 
         # 检测范围
         self.com_range = args.com_range  # 通信范围

@@ -220,7 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('--speed', default=[1, 2, 3, 4], type=list, help='移动速度')
     parser.add_argument('--particular_range_1', default=0, type=int, help='特殊环境(存在噪声)1的范围——0.2概率')
     parser.add_argument('--particular_range_2', default=3, type=int, help='特殊环境（存在噪声）2的范围——0.1概率')
-    parser.add_argument('--env_range', default=21, type=int, help='环境的范围')  # 大概133步能够覆盖搜索一遍
+    parser.add_argument('--env_range', default=21, type=int, help='环境的范围')
     parser.add_argument('--com_range', default=6, type=int, help='可通信的单侧范围')
     parser.add_argument('--det_range', default=1, type=int, help='可检测的单侧范围')
     parser.add_argument('--det_range_list', default=[1, 2], type=list, help='探测范围')
