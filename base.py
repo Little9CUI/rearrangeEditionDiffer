@@ -59,7 +59,8 @@ class RawEnv:
             per_target = DefineTarget(args)
             self.targets.append(per_target)
 
-        # 生成一系列地图
+        # 是否使用voronoi图
+        self.voronoi = args.voronoi
 
         # 生成噪声地图，在后续更新目标存在概率的时候使用
         self.noise_map = np.zeros((self.env_range, self.env_range))
@@ -157,7 +158,9 @@ class RawEnv:
             #         agent.det_value_map[i, j] = equations.log_pro_to_det_value(agent.com_value_map[i, j])
 
             # state.append(self.state_info_cut(agent.det_value_map, agent.x_pos, agent.y_pos))  # 5.28版本
+
             state.append(self.state_info_cut(agent.com_value_map, agent.x_pos, agent.y_pos))  # 6.5版本
+
             '''
             # det_all_value_map表征每个位置的搜索价值表征为覆盖位置的价值之和
             for i in range(self.env_range):
@@ -181,9 +184,13 @@ class RawEnv:
                         agent.new_met_agent.add(other_agent.agent_number)
 
             # 5.28版本
-            # 计算完新遇到的无人机，然后调用相关函数进行处理,利用voronoi_mask函数，判定01，输出哪些是被分配给无人机的.
-            # self.cal_voronoi_mask(agent.agent_number)
-            agent.voronoi_mask = np.ones(agent.env_shape, dtype=int)
+            if self.voronoi:
+                # 计算完新遇到的无人机，然后调用相关函数进行处理,利用voronoi_mask函数，判定01，输出哪些是被分配给无人机的.
+                self.cal_voronoi_mask(agent.agent_number)
+            else:
+                # 不使用voronoi图
+                agent.voronoi_mask = np.ones(agent.env_shape, dtype=int)
+
             # 在find_max_pos()，先将区域地图乘以mask，然后再进行计算是否最大值
             max_pos = agent.find_max_pos()
 
@@ -296,11 +303,11 @@ class RawEnv:
 
     def render(self):
         plt.ion()
-        i = 0
+        order = 0
 
         for agent in self.agents:
             # 绘制每个无人机的目标存在概率地图
-            plt.figure(i)
+            plt.figure(order)
             plt.clf()
             # 调色盘 https://www.cnblogs.com/Forever77/p/11396588.html
             # sns.heatmap https://zhuanlan.zhihu.com/p/165426873
@@ -322,8 +329,8 @@ class RawEnv:
                 plt.plot(target.x_pos + 0.5, target.y_pos + 0.5, marker='*', color='green', markersize=5)
             plt.pause(0.01)
             # 绘制无人机的时间储存地图
-            i = i + 1
-            break
+            order = order + 1
+            # break
         """
         # 绘制融合地图
         plt.figure(self.agents_num * 2)
@@ -409,6 +416,7 @@ class RawEnv:
             if per_whether_done:
                 self.whether_done = True
         '''
+
         # 6.4版本 判断是否结束搜索
         for agent in self.agents:
             per_whether_done = True
@@ -423,8 +431,9 @@ class RawEnv:
 
         return self.whether_done
 
-    def get_greedy_rew(self): # 获取窗口式预测算法中不同方向的最大收益
-
+    def get_greedy_reward(self):  # 获取窗口式预测算法中不同方向的最大收益
+        for agent in self.agents:
+            agent.cal_greedy_reward(0, agent.x_pos, agent.y_pos, agent.com_value_map)
 
     # 根据通信范围计算无人机之间的邻接特性,然后计算无人机之间的连通性，然后进行存在概率和更新时间两个map的融合
     def data_fusion(self):

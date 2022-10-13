@@ -7,9 +7,12 @@ from equations import *
 class DefineAgent:
     def __init__(self, args, agent_num):
         # 定义无人机的基本属性
+        self.speed = random.choice(args.speed)  # 无人机单次交互过程中的移动速度
         self.prob_correct = args.prob_correct  # 精确率
         self.prob_false_alarm = args.prob_false_alarm  # 漏警概率
-        self.det_range = args.det_range  # 检测范围
+        self.det_range = args.det_range  #
+
+        # 检测范围
         self.com_range = args.com_range  # 通信范围
         self.env_range = args.env_range  # 环境范围
         self.out_penalty = 0  # 定义的离开限定范围的惩罚项
@@ -57,6 +60,54 @@ class DefineAgent:
 
         # 是否成功的移动
         self.suc_move = False
+
+        # 贪心收益相关参数
+        self.greedy3_L = args.greedy3_L
+        self.dis_factor = args.dis_factor
+        self.greedy_rewards = [0, 0, 0, 0]
+        self.directions = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+
+    # 计算每个方向的无人机收益
+    def cal_greedy_reward(self, finished_step, tmp_x, tmp_y, com_map):
+        self.greedy_rewards = []
+        for direction in self.directions:
+            new_x = tmp_x + direction[0]
+            new_y = tmp_y + direction[1]
+            tmp_com_map = com_map.copy()
+            tmp_reward = 0
+            for x in range(new_x - self.det_range, new_x + self.det_range + 1):
+                for y in range(new_y - self.det_range, new_y + self.det_range + 1):
+                    if 0 <= x < self.env_range and 0 <= y < self.env_range:
+                        tmp_reward = tmp_reward + log_pro_to_det_value(tmp_com_map[x][y])
+                        tmp_com_map[x][y] = 4
+            tmp_reward = tmp_reward + self.dis_factor * self.cal_per_greedy_reward(1, new_x, new_y, tmp_com_map)
+
+            self.greedy_rewards.append(tmp_reward)
+        return self.greedy_rewards
+
+    # 计算某一方向的无人机收益
+    def cal_per_greedy_reward(self, finished_step, tmp_x, tmp_y, tmp_com_map):
+        max_reward = 0
+        if finished_step == self.greedy3_L:
+            return max_reward
+
+        for direction in self.directions:
+            tmp_reward = 0
+            new_x = tmp_x + direction[0]
+            new_y = tmp_y + direction[1]
+            for x in range(new_x - self.det_range, new_x + self.det_range + 1):
+                for y in range(new_y - self.det_range, new_y + self.det_range + 1):
+                    if 0 <= x < self.env_range and 0 <= y < self.env_range:
+                        tmp_reward = tmp_reward + log_pro_to_det_value(tmp_com_map[x][y])
+                        tmp_com_map[x][y] = 4
+
+            tmp_reward = tmp_reward + self.dis_factor * self.cal_per_greedy_reward(finished_step + 1, new_x, new_y, tmp_com_map)
+            max_reward = max(max_reward, tmp_reward)
+
+        return max_reward
+
+    def find_max_direction(self):
+        return self.greedy_rewards.index(max(self.greedy_rewards))
 
     # 更新无人机当前位置状态
     def update_pos_demon(self):

@@ -56,7 +56,7 @@ class DQN:
         else:
             self.eps_threshold = 0
 
-        if self.model_type == 'greedy_policy' or self.model_type == 'Random' or self.model_type == 'greedy_policy2':
+        if self.model_type == 'greedy_policy' or self.model_type == 'Random' or self.model_type == 'greedy_policy2' or self.model_type == 'greedy_policy3':
             self.eps_threshold = 1
 
         if sample > self.eps_threshold:
