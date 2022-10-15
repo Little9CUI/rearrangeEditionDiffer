@@ -101,7 +101,8 @@ class DefineAgent:
                         tmp_reward = tmp_reward + log_pro_to_det_value(tmp_com_map[x][y])
                         tmp_com_map[x][y] = 4
 
-            tmp_reward = tmp_reward + self.dis_factor * self.cal_per_greedy_reward(finished_step + 1, new_x, new_y, tmp_com_map)
+            tmp_reward = tmp_reward + self.dis_factor * self.cal_per_greedy_reward(finished_step + 1, new_x, new_y,
+                                                                                   tmp_com_map)
             max_reward = max(max_reward, tmp_reward)
 
         return max_reward
@@ -154,7 +155,7 @@ class DefineAgent:
                     # 更新不确定度（访问频次）加一
                     # self.uncertainty[i, j] = self.uncertainty[i, j] + 1
 
-    def agent_move(self, next_move, agents_pos_map):
+    def agent_move(self, next_move):
         # 不带有朝向约束环境
         # 一共为0,1,2,3个方向
         x_plus = 0
@@ -169,19 +170,12 @@ class DefineAgent:
             y_plus -= 1
         if 0 <= x_plus + self.x_pos < self.env_range and 0 <= y_plus + self.y_pos < self.env_range:
             # 看看目标位置是否有无人机，有的话就返回false，然后重新生成动作；没有的话，就移动无人机并将对应位置置为1
-            if agents_pos_map[x_plus + self.x_pos][y_plus + self.y_pos] == 1:
-                return False
-            else:
-                self.x_pos = x_plus + self.x_pos
-                self.y_pos = y_plus + self.y_pos
-                self.suc_move = True
-                agents_pos_map[self.x_pos][self.y_pos] = 1
+            self.x_pos = x_plus + self.x_pos
+            self.y_pos = y_plus + self.y_pos
+            self.suc_move = True
         else:
             self.out_penalty = self.out_penalty_index
             self.suc_move = True
-            agents_pos_map[self.x_pos][self.y_pos] = 1
-
-        return True
 
     # 处理后的访问时间地图
     def get_update_map(self):

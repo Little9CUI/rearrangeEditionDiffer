@@ -76,6 +76,10 @@ class RawEnv:
         # 保留搜索结果的时长
         self.keep_steps = args.keep_steps
 
+    def get_greedy_reward(self):  # 获取窗口式预测算法中不同方向的最大收益
+        for agent in self.agents:
+            agent.cal_greedy_reward(0, agent.x_pos, agent.y_pos, agent.com_value_map)
+
     # 噪声分布
     def noise_distribution(self):
         self.noise_map = np.zeros((self.env_range, self.env_range))
@@ -137,78 +141,44 @@ class RawEnv:
         self.data_fusion()
 
     # 状态信息获取
-    def get_state(self):
-        state_list = []
+    def get_state(self, index):
         # 6.5版本，对应cal_voronoi_mask0606使用，计算所有栅格位置到所有无人机的距离
         # self.calDistance()
 
-        for agent in self.agents:
-            state = []
+        agent = self.agents[index]
 
-            # 搜索价值的两种表征
-            '''
-            # 5.28版本 不确定概率至探测价值的转换函数
-            for i in range(self.env_range):
-                for j in range(self.env_range):
-                    agent.det_value_map[i, j] = equations.exist_pro_to_det_value(agent.exist_prob[i, j])
-            '''
-            # 6.5版本
-            # for i in range(self.env_range):
-            #     for j in range(self.env_range):
-            #         agent.det_value_map[i, j] = equations.log_pro_to_det_value(agent.com_value_map[i, j])
-
-            # state.append(self.state_info_cut(agent.det_value_map, agent.x_pos, agent.y_pos))  # 5.28版本
-
-            state.append(self.state_info_cut(agent.com_value_map, agent.x_pos, agent.y_pos))  # 6.5版本
-
-            '''
-            # det_all_value_map表征每个位置的搜索价值表征为覆盖位置的价值之和
-            for i in range(self.env_range):
-                for j in range(self.env_range):
-                    agent.det_all_value_map[i, j] = self.pos_reward(i, j, agent.det_value_map)
-            state.append(self.state_info_cut(agent.det_all_value_map,agent.x_pos,agent.y_pos))  # 传入整合后的奖励栅格图
-            '''
-            # stack的用法 https://blog.csdn.net/qq_40605167/article/details/81210926
-            states = np.stack(state, axis=0)
-            state_list.append(states)
-
-            # 检测价值地图中最大值对应的位置
-            # 首先计算无人机遇到的新的其他无人机
-
-            agent.new_met_agent.clear()
-            for other_agent in self.agents:
-                if other_agent.agent_number == agent.agent_number:
-                    continue
-                else:
-                    if math.hypot(other_agent.x_pos - agent.x_pos, other_agent.y_pos - agent.y_pos) < agent.com_range:
-                        agent.new_met_agent.add(other_agent.agent_number)
-
-            # 5.28版本
-            if self.voronoi:
-                # 计算完新遇到的无人机，然后调用相关函数进行处理,利用voronoi_mask函数，判定01，输出哪些是被分配给无人机的.
-                self.cal_voronoi_mask(agent.agent_number)
+        agent.new_met_agent.clear()
+        for other_agent in self.agents:
+            if other_agent.agent_number == agent.agent_number:
+                continue
             else:
-                # 不使用voronoi图
-                agent.voronoi_mask = np.ones(agent.env_shape, dtype=int)
+                if math.hypot(other_agent.x_pos - agent.x_pos, other_agent.y_pos - agent.y_pos) < agent.com_range:
+                    agent.new_met_agent.add(other_agent.agent_number)
 
-            # 在find_max_pos()，先将区域地图乘以mask，然后再进行计算是否最大值
-            max_pos = agent.find_max_pos()
-
-            '''
-            # 6.6版本
+        # 5.28版本
+        if self.voronoi:
             # 计算完新遇到的无人机，然后调用相关函数进行处理,利用voronoi_mask函数，判定01，输出哪些是被分配给无人机的.
-            self.cal_voronoi_mask0606(agent.agent_number)
-            # 在find_max_pos()，先将区域地图乘以mask，然后再进行计算是否最大值
-            max_pos = agent.find_max_pos()
-            '''
+            self.cal_voronoi_mask(agent.agent_number)
+        else:
+            # 不使用voronoi图
+            agent.voronoi_mask = np.ones(agent.env_shape, dtype=int)
 
-            state_list.append(max_pos)
+        # 在find_max_pos()，先将区域地图乘以mask，然后再进行计算是否最大值
+        max_pos = agent.find_max_pos()
 
-            # 二进制表征的时间项
-            # time_list = dec2bin(self.time_step)
-            # state_list.append(time_list)
+        '''
+        # 6.6版本
+        # 计算完新遇到的无人机，然后调用相关函数进行处理,利用voronoi_mask函数，判定01，输出哪些是被分配给无人机的.
+        self.cal_voronoi_mask0606(agent.agent_number)
+        # 在find_max_pos()，先将区域地图乘以mask，然后再进行计算是否最大值
+        max_pos = agent.find_max_pos()
+        '''
 
-        return state_list  # 获得下一时刻的环境状态信息，内容为每个无人机的[状态信息（概率地图，位置地图，时间更新地图），二维时间信息]
+        # 二进制表征的时间项
+        # time_list = dec2bin(self.time_step)
+        # state_list.append(time_list)
+
+        return max_pos  # 获得下一时刻的环境状态信息，内容为每个无人机的[状态信息（概率地图，位置地图，时间更新地图），二维时间信息]
 
     # 计算所在位置能记录的覆盖的所有位置的价值之和
     def pos_reward(self, x_pos, y_pos, values):
@@ -267,27 +237,9 @@ class RawEnv:
     '''
 
     # 无人机位置的移动
-    def move_agents(self, actions):
-        # 每次先将无人机位置地图以及成功的无人机set进行初始化
-        self.agents_pos_map = np.zeros((self.env_range, self.env_range))
-        Suc_agents = set()
-        i = 0
-        for agent in self.agents:
-            sucAct = agent.agent_move(actions[i], self.agents_pos_map)
-            if sucAct:
-                Suc_agents.add(i)
-            i = i + 1
-        count = 0
-        while len(Suc_agents) < self.agents_num:
-            count = count + 1
-            if count > 10:
-                break
-            for agent in self.agents:
-                if not agent.suc_move:
-                    action = random.randint(0, 3)
-                    sucAct = agent.agent_move(action, self.agents_pos_map)
-                    if sucAct:
-                        Suc_agents.add(i)
+    def move_agents(self, action, index):
+        agent = self.agents[index]
+        agent.agent_move(action)
 
     # 所有agent的奖励的和
     def get_rewards(self, present_step):
@@ -330,7 +282,7 @@ class RawEnv:
             plt.pause(0.01)
             # 绘制无人机的时间储存地图
             order = order + 1
-            # break
+            break
         """
         # 绘制融合地图
         plt.figure(self.agents_num * 2)
@@ -373,31 +325,31 @@ class RawEnv:
         return final_reward
 
     # 更新无人机的所有地图信息
-    def update_state1(self):
-        self.whether_done = False
-        for agent in self.agents:
-            per_whether_done = True
-            # 在每个agent移动之后，更新自己的环境信息
-            agent.update_map(self.targets, self.time_step, self.noise_map)  # 存在概率，访问次数，访问时间
-            agent.update_pos_demon()  # 存在位置
+    def update_state1(self, index):
+        self.whether_done = True
 
-            # 6.4版本，判断com_map的最小绝对值，对应最大不确定度，是否小于max_unbelief
-            abs_com_value_map = np.absolute(agent.com_value_map)
-            min_com_L = np.min(abs_com_value_map)
-            max_unbelief = equations.log_pro_to_det_value(min_com_L)
-            if max_unbelief > self.uncertainty_belief:
-                per_whether_done = False
+        # 定义无人机agent
+        agent = self.agents[index]
 
-            '''
-            # 5.28版本，判断是否搜索结束
-            for i in range(self.env_range):
-                for j in range(self.env_range):
-                    if self.low_belief < agent.exist_prob[i, j] < self.up_belief:
-                        per_whether_done = False
-            '''
-            if per_whether_done:
-                self.whether_done = True
-                return self.whether_done
+        # 在每个agent移动之后，更新自己的环境信息
+        agent.update_map(self.targets, self.time_step, self.noise_map)  # 存在概率，访问次数，访问时间
+
+        # 6.4版本，判断com_map的最小绝对值，对应最大不确定度，是否小于max_unbelief
+        abs_com_value_map = np.absolute(agent.com_value_map)
+        min_com_L = np.min(abs_com_value_map)
+        max_unbelief = equations.log_pro_to_det_value(min_com_L)
+        if max_unbelief > self.uncertainty_belief:
+            self.whether_done = False
+
+        '''
+        # 5.28版本，判断是否搜索结束
+        for i in range(self.env_range):
+            for j in range(self.env_range):
+                if self.low_belief < agent.exist_prob[i, j] < self.up_belief:
+                    per_whether_done = False
+        '''
+
+        return self.whether_done
 
     # 更新无人机的所有地图信息
     def update_state2(self):
@@ -430,10 +382,6 @@ class RawEnv:
                 return True
 
         return self.whether_done
-
-    def get_greedy_reward(self):  # 获取窗口式预测算法中不同方向的最大收益
-        for agent in self.agents:
-            agent.cal_greedy_reward(0, agent.x_pos, agent.y_pos, agent.com_value_map)
 
     # 根据通信范围计算无人机之间的邻接特性,然后计算无人机之间的连通性，然后进行存在概率和更新时间两个map的融合
     def data_fusion(self):

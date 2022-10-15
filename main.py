@@ -44,18 +44,12 @@ def main(args):
     # 循环次数为max_episodes
     while i_episode < args.max_episodes:
 
-        # 单次episode完成后训练的次数
-        if i_episode > 100:
-            args.train_times = 400  # 后期train_times的次数要降低，否则训练的次数比交互的次数还要多
-        if i_episode > 300:
-            args.train_times = 166  # 后期train_times的次数要降低，否则训练的次数比交互的次数还要多
-
         # 初始化单次episode的 开始时间与结束标志
         start_time = time.time()
         whether_done = False
 
         env.reset()  # 初始化模型
-        next_states = env.get_state()  # 获得下一时刻的环境状态信息，内容为每个无人机的[状态信息（概率地图，位置地图，时间更新地图），二维时间信息]
+        # next_states = env.get_state()  # 获得下一时刻的环境状态信息，内容为每个无人机的[状态信息（概率地图，位置地图，时间更新地图），二维时间信息]
 
         for present_step in range(args.max_step):  # 循环无人机移动
             # 是否结束单次搜索
@@ -69,88 +63,50 @@ def main(args):
 
             # 更新基础状态信息值
             env.time_step = env.time_step + 1  # 当前的移动步数
-            states = next_states  # 更新状态
+            # states = next_states  # 更新状态
             actions = []  # 动作列表
-
-            # 寻找最大窗口收益
-            env.get_greedy_reward()
 
             # 强化学习结果 以及两种贪心策略 以及random策略
             for i in range(len(env.agents)):  # 循环每个无人机
-                if args.test_mode == "test" or args.test_mode == "greedy2":
-                    action = model.select_action(torch.from_numpy(np.float32(states[2 * i])),
-                                                 torch.from_numpy(np.float32(states[2 * i + 1])), args)
+                # 是否已经结束搜索
+                if whether_done:
+                    break
 
-                elif args.test_mode == "greedy3":
-                    action = env.agents[i].find_max_direction()
-                    action = torch.tensor([[action]])
+                # 定义所要选择的无人机
+                agent = env.agents[i]
 
-                else:
-                    states[2 * i + 1][0] = env.agents[i].x_pos
-                    states[2 * i + 1][1] = env.agents[i].y_pos
-                    action = model.select_action(torch.from_numpy(env.agents[i].exist_prob),
-                                                 np.float32(states[2 * i + 1]), args)
-                actions.append(action.squeeze(dim=1))
+                for inter_step in range(agent.speed):
+                    # 寻找最大窗口收益
+                    agent.cal_greedy_reward(0, agent.x_pos, agent.y_pos, agent.com_value_map)
 
-            actions = torch.cat(actions, dim=0)
-            actions = actions.tolist()  # 这两句干什么用的
+                    per_state = env.get_state(i)
 
-            # 令无人机执行动作，更新无人机的位置
-            env.move_agents(actions)
+                    if args.test_mode == "greedy3":
+                        action = env.agents[i].find_max_direction()
+                        action = torch.tensor([[action]])
+                    else:
+                        action = []  # 多余内容防止程序出错
+                        print("应该采用窗口式贪心的算法")
 
-            # 每个agent得到的奖励
-            rewards = env.get_rewards(present_step)
+                    action.squeeze(dim=1)
 
-            # 将无人机移动对环境造成的影响进行更新。主要是更新的每个无人机储存的所有环境信息，并且在融合前判断是否搜索结束
-            whether_done = env.update_state1()
+                    # 移动无人机,输入为动作，以及无人机的序号
+                    env.move_agents(action, i)
 
-            # 判断步长是否达到上限
-            if present_step == args.max_step - 1:
-                whether_done = True
+                    # 将无人机移动对环境造成的影响进行更新。主要是更新的每个无人机储存的所有环境信息，并且在融合前判断是否搜索结束
+                    whether_done = env.update_state1(i) or whether_done
 
-            # 如果单次episode结束，则更新reward
-            if whether_done:
-                time_reward = 0  # present_step
-                rewards = [rewards[i] - time_reward for i in range(len(rewards))]
-                # 计算单次episode的表现效果（一共消耗多少步）
-                per_all_final_reward = present_step
+                    # 判断步长是否达到上限
+                    if present_step == args.max_step - 1:
+                        whether_done = True
+                        break
 
-            # 获取新的状态。状态为每个无人机的存在概率地图和更新时间地图
-            next_states = env.get_state()
-
-            # 储存交互信息
-            if args.if_train:
-                for i in range(len(env.agents)):
-                    # 奖励的倍率与偏置
-                    re_index = 5
-                    reward_sub = 1
-
-                    # 储存强化学习训练所需要的样本信息
-                    rw_tensor = torch.tensor([rewards[i] * re_index - reward_sub]).float().to(device)  # size=1
-                    ac_tensor = torch.tensor([actions[i]]).to(device)  # size= 1
-                    states_tensor = torch.tensor([states[2 * i]]).float().to(device)  # size=1*3*21*21
-                    max_tensor = torch.tensor([states[2 * i + 1]]).float().to(device)
-                    next_states_tensor = torch.tensor([next_states[2 * i]]).float().to(device)  # size=1*3*21*21
-                    next_max_tensor = torch.tensor([next_states[2 * i + 1]]).float().to(device)  # size=1*8
-
-                    # 计算error值
-                    error = model.get_td_error(states_tensor, ac_tensor, next_states_tensor, rw_tensor, max_tensor,
-                                               next_max_tensor)  # float
-
-                    # 将单条经验归到经验池中
-                    model.memory.push(error, states_tensor, ac_tensor, next_states_tensor, rw_tensor, max_tensor,
-                                      next_max_tensor)
+            # 所使用的总次数
+            per_all_final_reward = present_step
 
             # 如果没有结束，则进行信息融合，并判断是否结束单次episode
             if not whether_done:
                 whether_done = env.update_state2()
-                # 若未结束，则获取新的状态。状态为每个无人机的存在概率地图和更新时间地图
-                next_states = env.get_state()
-
-            # 再次判断是否结束单次的搜索
-            if whether_done:
-                time_reward = present_step
-                rewards = [rewards[i] - time_reward for i in range(len(rewards))]
 
         # 测试情况下，单次交互结束，统计信息，该次训练结束后的结果
         if not args.if_train:
@@ -162,35 +118,6 @@ def main(args):
                     print("[Episode %05d] reward %6.4f" % (i_episode, final_reward))
                 else:
                     print("[Episode %05d] reward %6.4f" % (i_episode, final_reward / cal_num))
-        else:
-            "************* 训练模式代码起始位置 *********************"
-            # train模式下
-            if i_episode > args.train_in_start:
-                for i in range(args.train_times):
-                    model.update()
-                    args.tau = max(0.02, args.tau - 0.00002)  # 400
-                    soft_update(model.policy_net, model.target_net, args.tau)
-
-                if i_episode % args.save_interval == 0:
-                    save_path = "./algo/DQN/trained_model/policy_net_" + str(i_episode) + ".pt"
-                    torch.save(model.policy_net.state_dict(), save_path, _use_new_zipfile_serialization=False)
-
-            # 输出print_interval个loss的平均值
-            cal_num += 1
-            # print('\n', "[Episode %05d] reward %6.4f" % (i_episode, per_all_final_reward))
-            final_reward -= per_all_final_reward
-
-            if i_episode % args.print_interval == 0:
-                if i_episode == 0:
-                    print('\n', "[Episode %05d] reward %6.4f" % (i_episode, final_reward))
-                    final_reward = final_reward * 3
-                else:
-                    print('\n', "[Episode %05d] reward %6.4f" % (i_episode, final_reward / args.print_interval))
-                    print(model.eps_threshold)
-                cal_num = 0
-                final_reward = 0
-
-            "************** 训练模式代码终止位置 ***********************************"
 
         # 更新i_episode、以及模型中记录的已完成轮次model.steps_done
         i_episode += 1
@@ -215,9 +142,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # test是强化学习的算法，greedy是寻找覆盖区域不确定和最大的位置的算法，greedy2是寻找最大不确定度位置的算法,greedy3是找窗口式最优
-    parser.add_argument('--test_mode', default="greedy2", type=str, help='test/greedy/random/greedy2/greedy3')
+    parser.add_argument('--test_mode', default="greedy3", type=str, help='test/greedy/random/greedy2/greedy3')
     # 环境相关基本要素
-    parser.add_argument('--speed', default=[1, 2, 3, 4], type=list, help='移动速度')
+    parser.add_argument('--speed', default=[2], type=list, help='移动速度')
     parser.add_argument('--particular_range_1', default=0, type=int, help='特殊环境(存在噪声)1的范围——0.2概率')
     parser.add_argument('--particular_range_2', default=3, type=int, help='特殊环境（存在噪声）2的范围——0.1概率')
     parser.add_argument('--env_range', default=21, type=int, help='环境的范围')
@@ -238,7 +165,7 @@ if __name__ == '__main__':
     parser.add_argument('--uncertainty_belief', default=0.9, type=float, help='结束搜索的概率上限')
     parser.add_argument('--keep_steps', default=2, type=int, help='保留搜索结果的时长')
     parser.add_argument('--voronoi', default=True, type=bool, help='是否使用voronoi格式')
-    parser.add_argument('--plot_render', default=False, type=bool, help='是否交互显示')
+    parser.add_argument('--plot_render', default=True, type=bool, help='是否交互显示')
     parser.add_argument('--plot_line', default=False, type=bool, help='是否绘制线状图')
 
     # 强化学习过程相关基本要素
@@ -259,7 +186,7 @@ if __name__ == '__main__':
 
     # 与训练和测试均有关的参数
     parser.add_argument('--max_episodes', default=10000, type=int, help='episode的数量')
-    parser.add_argument('--if_train', default=False, type=bool, help="训练还是测试")  # true表示训练，false表示测试
+    parser.add_argument('--if_train', default=True, type=bool, help="训练还是测试")  # true表示训练，false表示测试
     parser.add_argument('--model_type', default="Random", type=str,
                         help="ScanSearch/Random/None/greedy_policy/greedy_policy2/greedy_policy3，无人机的运行模式,正常训练时设计为None")  # 测试的时候，应该写为
     parser.add_argument('--model_type_begin', default="Random", type=str,
